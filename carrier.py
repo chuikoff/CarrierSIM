@@ -709,6 +709,69 @@ from datetime import datetime
 APPLE_DIRS = []
 ASSET_SHA256 = '6de1ea0be81a29c145ef414f24bc21d1dcb8a4eb737b22b1f956e9a6f0c2098b'
 
+
+def windows_apple_library_dirs(extra=()):
+    """Dirs with AirTrafficHost/CoreFoundation: --apple-dir, classic AMDS, Apple Devices, Store iTunes."""
+    import winreg
+    paths = [Path(p).resolve() for p in extra]
+    for key in ('CommonProgramW6432', 'CommonProgramFiles'):
+        base = os.environ.get(key)
+        if base:
+            paths += [Path(base)/'Apple'/'Mobile Device Support',
+                      Path(base)/'Apple'/'Apple Application Support']
+    def reg_str(hive, subkey, name, access=0):
+        try:
+            with winreg.OpenKey(hive, subkey, 0, winreg.KEY_READ | access) as k:
+                value, typ = winreg.QueryValueEx(k, name)
+                return value if typ in (winreg.REG_SZ, winreg.REG_EXPAND_SZ) and value else None
+        except OSError:
+            return None
+    for access in (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY, 0):
+        for sub, names in (
+            (r'SOFTWARE\Apple Inc.\Apple Mobile Device Support', ('InstallDir', 'InstallPath')),
+            (r'SOFTWARE\Apple Inc.\Apple Application Support', ('InstallDir', 'InstallPath')),
+            (r'SOFTWARE\WOW6432Node\Apple Inc.\Apple Mobile Device Support', ('InstallDir', 'InstallPath')),
+            (r'SOFTWARE\WOW6432Node\Apple Inc.\Apple Application Support', ('InstallDir', 'InstallPath'))):
+            for name in names:
+                value = reg_str(winreg.HKEY_LOCAL_MACHINE, sub, name, access)
+                if value:
+                    paths.append(Path(os.path.expandvars(value)))
+    # Store: HKCR\Local Settings\...\PackageRepository\Packages
+    pkg_root = r'Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\PackageRepository\Packages'
+    devices_dirs, itunes_dirs = [], []
+    try:
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, pkg_root) as root:
+            i = 0
+            while True:
+                try: name = winreg.EnumKey(root, i)
+                except OSError: break
+                i += 1
+                low = name.lower()
+                if '_neutral_' in low or '_x86_' in low: continue
+                is_devices = low.startswith('appleinc.appledevices_')
+                is_itunes = low.startswith('appleinc.itunes_')
+                if not (is_devices or is_itunes): continue
+                try:
+                    with winreg.OpenKey(root, name) as pkg:
+                        try: path_val, _ = winreg.QueryValueEx(pkg, 'Path')
+                        except OSError: path_val = None
+                        if not path_val:
+                            try: path_val = winreg.QueryValue(pkg, None)
+                            except OSError: path_val = None
+                except OSError:
+                    continue
+                if not path_val: continue
+                base = Path(path_val)
+                if is_devices:
+                    devices_dirs.append(base)  # 64-bit DLLs in package root
+                else:
+                    itunes_dirs += [base/'AMDS64', base]
+    except OSError:
+        pass
+    paths += devices_dirs + itunes_dirs
+    return list(dict.fromkeys(p for p in paths if p.is_dir()))
+
+
 class AppleHost:
     def __init__(self, directories=()):
         self.handles = []
@@ -724,19 +787,15 @@ class AppleHost:
             self.pool = self.objc.objc_autoreleasePoolPush()
         elif sys.platform == 'win32':
             require(C.sizeof(C.c_void_p) == 8, 'Нужен 64-битный Python и 64-битные компоненты Apple.')
-            paths = [Path(p).resolve() for p in directories]
-            for key in ('CommonProgramW6432', 'CommonProgramFiles'):
-                base = os.environ.get(key)
-                if base:
-                    paths += [Path(base)/'Apple'/'Mobile Device Support',
-                              Path(base)/'Apple'/'Apple Application Support']
-            paths = list(dict.fromkeys(p for p in paths if p.is_dir()))
+            paths = windows_apple_library_dirs(directories)
             for p in paths:
                 self.handles.append(os.add_dll_directory(str(p)))
             def load(name):
                 candidates = [p/name for p in paths if (p/name).is_file()]
-                require(candidates, 'Не найдена ' + name + '. Установите iTunes x64 с сайта Apple '
-                        'или укажите папки библиотек через --apple-dir. Версия Microsoft Store может не подойти.')
+                require(candidates, 'Не найдена ' + name + '. Установите приложение Apple Devices из Microsoft Store '
+                        'или Apple Mobile Device Support (и драйвер Apple Mobile Device USB). '
+                        'При необходимости укажите папки DLL через --apple-dir '
+                        '(для Store папки WindowsApps иногда недоступны из‑за ACL).')
                 return C.CDLL(str(candidates[0]), winmode=0x1100)
             self.cf = load('CoreFoundation.dll')
             self.at = load('AirTrafficHost.dll')
@@ -814,7 +873,7 @@ def native_host(udid, assets, directories):
         ref = host.encode(udid)
         try: connection = host.at.ATHostConnectionCreate(ref)
         finally: host.cf.CFRelease(ref)
-        require(connection, 'Не удалось открыть AirTraffic. Закройте синхронизацию iTunes/Finder.')
+        require(connection, 'Не удалось открыть AirTraffic. Закройте синхронизацию Finder/iTunes/Apple Devices.')
         def until(wanted, limit):
             for _ in range(limit):
                 msg = host.at.ATHostConnectionReadMessage(connection)
@@ -1054,10 +1113,11 @@ async def choose_device(udid, wait_seconds=180):
                   if CONNECTION=='Network' else 'Ожидаю подключения iPhone по USB. Подключите и разблокируйте телефон…',flush=True)
             announced=True
         require(time.monotonic()<deadline,'Время ожидания подключения истекло. '+
-                ('iPhone не виден по Wi-Fi: один раз подключите его кабелем и включите в Finder/iTunes '
-                 '«Показывать этот iPhone, если он подключён к Wi-Fi», затем повторите с --wifi.' if CONNECTION=='Network' else
+                ('iPhone не виден по Wi-Fi: один раз подключите его кабелем и включите в '
+                 + ('Apple Devices (или iTunes) ' if sys.platform=='win32' else 'Finder/iTunes ')
+                 + '«Показывать этот iPhone, если он подключён к Wi-Fi», затем повторите с --wifi.' if CONNECTION=='Network' else
                  'Проверьте кабель и повторите.')+
-                (' Если iPhone виден в Проводнике, но не в iTunes, не установлен драйвер Apple Mobile '
+                (' Если iPhone виден в Проводнике, но скрипт его не находит, не установлен драйвер Apple Mobile '
                  'Device USB: см. раздел «Windows не видит iPhone» в README.' if sys.platform=='win32' and CONNECTION=='USB' else ''))
         await asyncio.sleep(min(2,max(0,deadline-time.monotonic())))
 
@@ -1744,26 +1804,38 @@ def environment_info():
     elif sys.platform == 'win32':
         w = sys.getwindowsversion()
         rows.append(('Windows', f"{platform.release()} {platform.version()} (build {w.build}) · {platform.machine()}"))
-        dirs = [Path(d) for d in APPLE_DIRS]
-        for key in ('CommonProgramW6432', 'CommonProgramFiles'):
-            if os.environ.get(key):
-                dirs += [Path(os.environ[key])/'Apple'/'Mobile Device Support', Path(os.environ[key])/'Apple'/'Apple Application Support']
+        dirs = windows_apple_library_dirs(APPLE_DIRS)
         found = {}
-        for d in dict.fromkeys(dirs):
+        for d in dirs:
             for name in ('AirTrafficHost.dll', 'MobileDevice.dll', 'CoreFoundation.dll'):
                 if name not in found and (d/name).is_file():
                     found[name] = f'{win_file_version(d/name) or "?"} ({d})'
         for name in ('AirTrafficHost.dll', 'MobileDevice.dll', 'CoreFoundation.dll'):
             rows.append((name, found.get(name, 'не найдена')))
+        amds = next((d for d in dirs if (d/'AirTrafficHost.dll').is_file() or d.name == 'Mobile Device Support'), None)
+        devices = next((d for d in dirs if 'AppleDevices' in d.parts or 'AppleInc.AppleDevices' in str(d)), None)
+        if devices:
+            rows.append(('Apple Devices', f'найден ({devices})'))
+        elif amds:
+            rows.append(('Apple Mobile Device Support', f'найден ({amds})'))
+        else:
+            rows.append(('Apple Devices / AMDS', 'не найдены (нужны DLL AirTrafficHost и CoreFoundation)'))
         itunes = [Path(os.environ[k])/'iTunes'/'iTunes.exe' for k in ('ProgramW6432', 'ProgramFiles') if os.environ.get(k)]
         itunes = next((x for x in itunes if x.is_file()), None)
-        rows.append(('iTunes', win_file_version(itunes) if itunes else 'iTunes.exe не найден (возможно, версия из Microsoft Store)'))
+        rows.append(('iTunes.exe', ((win_file_version(itunes) or '?') + ' (не требуется)' if itunes else 'нет (не требуется)')))
         try:
             import winreg
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Services\Apple Mobile Device Service'):
-                rows.append(('Apple Mobile Device Service', 'установлена'))
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SYSTEM\CurrentControlSet\Services\Apple Mobile Device Service') as svc:
+                start, _ = winreg.QueryValueEx(svc, 'Start')
+            state = {2: 'автозапуск', 3: 'вручную', 4: 'отключена'}.get(start, f'Start={start}')
+            rows.append(('Apple Mobile Device Service', 'установлена · ' + state))
         except Exception:
             rows.append(('Apple Mobile Device Service', 'не найдена'))
+        try:
+            drv = Path(os.environ.get('SystemRoot', r'C:\Windows'))/'System32'/'drivers'/'usbaapl64.sys'
+            rows.append(('Apple Mobile Device USB', 'usbaapl64.sys есть' if drv.is_file() else 'usbaapl64.sys не найден (см. README)'))
+        except Exception:
+            rows.append(('Apple Mobile Device USB', 'не проверен'))
     else:
         rows.append(('ОС', platform.platform()))
     return rows
@@ -2010,7 +2082,7 @@ def main():
                            'Что сделать: закройте это окно, скопируйте всю папку CarrierSIM '
                            'в «Загрузки» и запустите оттуда.') from None
     with contextlib.suppress(OSError):start_session_log(args.runs)
-    print('Разблокируйте iPhone и подтвердите доверие компьютеру. Закройте синхронизацию Finder/iTunes.',flush=True)
+    print('Разблокируйте iPhone и подтвердите доверие компьютеру. Закройте синхронизацию Finder/iTunes/Apple Devices.',flush=True)
     with operation_lock(args.runs):return asyncio.run(execute_with_retry(args,assets)) or 0
 
 

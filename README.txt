@@ -17,13 +17,15 @@ IMSI, операция останавливается до записи.
 ПОДГОТОВКА
 1. Распакуйте архив целиком в папку, куда можно писать, например «Загрузки».
 2. Установите Python 3.11 или новее (на Windows — x64); рекомендуется 3.12.
-3. Windows: нужны службы и библиотеки Apple из настольного iTunes x64
-   с сайта Apple. Apple Devices и iTunes из Microsoft Store автоматически
-   не находятся (папки библиотек можно указать через --apple-dir).
-   macOS: используются системные библиотеки, ставить ничего не нужно.
+3. Windows: нужны библиотеки Apple Mobile Device Support (приложение
+   Apple Devices из Microsoft Store или классический AMDS) и драйвер
+   Apple Mobile Device USB. Полный iTunes не обязателен. Если --check
+   не находит DLL из Store (WindowsApps закрыт ACL), укажите папки через
+   --apple-dir. macOS: системные библиотеки, ставить ничего не нужно.
 4. Подключите iPhone кабелем, включите нужные линии, разблокируйте,
-   подтвердите доверие компьютеру. Завершите синхронизацию Finder/iTunes.
-   Кабель нужен для первого доверия; дальше можно по Wi-Fi (см. БЕЗ КАБЕЛЯ).
+   подтвердите доверие компьютеру. Завершите синхронизацию
+   Finder/iTunes/Apple Devices. Кабель нужен для первого доверия;
+   дальше можно по Wi-Fi (см. БЕЗ КАБЕЛЯ).
 
 БЫСТРЫЙ ЗАПУСК ДВОЙНЫМ ЩЕЛЧКОМ
 macOS: Запуск macOS.command
@@ -123,8 +125,8 @@ python3 carrier.py --wifi --status  То же по Wi-Fi; --wifi работае�
 python3 carrier.py --help           Все флаги.
 
 При нескольких телефонах добавьте --udid ID. По умолчанию USB, с --wifi — сеть.
-Windows с нестандартной установкой Apple — укажите папки библиотек одной
-установленной версии:
+Windows: если --check не находит DLL (часто у Store Apple Devices из‑за ACL
+WindowsApps), укажите папки библиотек через --apple-dir:
 py carrier.py --check --apple-dir "C:\путь\Mobile Device Support" --apple-dir "C:\путь\Apple Application Support"
 
 Скрипт не скачивает пакеты или DLL; интернет нужен только для зависимостей.
@@ -136,8 +138,9 @@ IMSI не выводится в консоль, но есть в копиях и
 Подготовка, один раз с кабелем:
 1. Подключите кабель, нажмите «Доверять», проверьте пункт 2 — SIM видны.
 2. Finder → iPhone → «Основные» → «Показывать этот iPhone, если он
-   подключён к Wi-Fi» → «Применить». Windows: iTunes → «Обзор» → «Параметры».
-3. Закройте Finder/iTunes, отключите кабель.
+   подключён к Wi-Fi» → «Применить». Windows: Apple Devices (или iTunes)
+   → «Обзор» → «Параметры».
+3. Закройте Finder/Apple Devices/iTunes, отключите кабель.
 Дальше:
 4. iPhone и компьютер в одной сети (не гостевой, без изоляции клиентов),
    iPhone разблокирован и не засыпает.
@@ -209,11 +212,12 @@ iPhone и возвращает каталог к состоянию до неё.
 
 ЧАСТЫЕ ПРОБЛЕМЫ
 Windows не видит iPhone: в Проводнике он есть («Apple iPhone», видны фото),
-а iTunes и скрипт его не находят — не установлен драйвер Apple Mobile Device
-USB. Скачайте «Apple Mobile Device USB Driver» из Microsoft Update Catalog
+а скрипт его не находит — не установлен драйвер Apple Mobile Device USB.
+Скачайте «Apple Mobile Device USB Driver» из Microsoft Update Catalog
 (https://www.catalog.update.microsoft.com), распакуйте .cab и от администратора
 выполните в папке с файлами: pnputil /add-driver usbaapl64.inf /install,
-затем перезагрузите компьютер. Переустановка iTunes не всегда помогает.
+затем перезагрузите компьютер. Переустановка Apple Devices / AMDS не всегда
+помогает.
 
 InstallProhibited: установку запрещает «Экранное время» («Ограничения контента
 и конфиденциальности → Покупки в iTunes Store и App Store → Установка
@@ -259,7 +263,8 @@ CommCenter выясняет, какой пакет выбран для кажд�
 - streaming_zip_conduit — загрузка ZIP с распаковкой в /var/mobile/Media;
 - com.apple.atc (AirTraffic) — синхронизация iTunes/Finder; вызывается через
   закрытую библиотеку Apple AirTrafficHost (на macOS системная, на Windows
-  ставится с iTunes, для Linux её нет — поэтому Linux не поддерживается).
+  поставляется с Apple Mobile Device Support / Apple Devices, для Linux её
+  нет — поэтому Linux не поддерживается).
 
 Шаги установки:
 1. Через installation_proxy ставится подписанный IPCC-триггер оператора,
