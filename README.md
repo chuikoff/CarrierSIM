@@ -9,7 +9,7 @@
 ## Что нужно
 
 - **Python 3.11 или новее**, рекомендуется 3.12. На Windows нужна 64-битная версия.
-- **Windows:** библиотеки Apple Mobile Device Support (приложение **Apple Devices** из Microsoft Store или классический AMDS). Полный iTunes **не обязателен**. Нужен драйвер Apple Mobile Device USB. Если `--check` не находит DLL из Store (папка WindowsApps закрыта ACL), укажите её через `--apple-dir`.
+- **Windows:** библиотеки Apple Mobile Device Support (приложение **Apple Devices** из Microsoft Store или классический AMDS). Полный iTunes **не обязателен**. Нужен драйвер Apple Mobile Device USB. При WinError 5 (отказ в доступе к WindowsApps) скрипт копирует DLL в `.apple-dlls`. Если всё ещё не грузятся — скопируйте папку DLL Apple Devices / AMDS в обычный каталог и укажите `--apple-dir`.
 - **macOS:** ничего дополнительно ставить не нужно.
 - iPhone, кабель USB и интернет для первого запуска. Потом можно без кабеля, по Wi-Fi (пункт **10**).
 
@@ -106,6 +106,8 @@ default: Vodafone_hu
 ```
 
 **Windows не видит iPhone.** В «Проводнике» телефон есть (как `Apple iPhone`, видны фото), а скрипт его не находит. Значит, не установлен драйвер Apple Mobile Device USB. Переустановка Apple Devices / AMDS не всегда помогает. Скачайте драйвер «Apple Mobile Device USB Driver» из [Microsoft Update Catalog](https://www.catalog.update.microsoft.com/Search.aspx?q=Apple%20Mobile%20Device%20USB%20Driver), распакуйте `.cab` и в командной строке от администратора выполните `pnputil /add-driver usbaapl64.inf /install` из папки с распакованными файлами. Затем перезагрузите компьютер.
+
+**WinError 5 / «Отказано в доступе» к DLL Apple.** Часто бывает у Store **Apple Devices** (ACL у `WindowsApps`) или при смешивании DLL из сторонних кэшей (anisette / IPA Downloader). Скрипт берёт `CoreFoundation.dll` и `AirTrafficHost.dll` из **одной** папки и при отказе в доступе копирует `*.dll` в `.apple-dlls` рядом со скриптом. Если `--check` всё ещё падает — скопируйте папку DLL Apple Devices / AMDS в обычный (доступный для чтения) каталог и запустите с `--apple-dir "C:\путь\к\папке"`. Полный iTunes для этого не нужен.
 
 **«iPhone запрещает установку (InstallProhibited)».** В «Экранном времени» запрещена установка приложений: «Настройки → Экранное время → Ограничения контента и конфиденциальности → Покупки в iTunes Store и App Store → Установка приложений» — поставьте «Да» на время установки. То же бывает у телефонов с профилем управления (MDM).
 

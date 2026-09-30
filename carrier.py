@@ -708,12 +708,29 @@ from datetime import datetime
 
 APPLE_DIRS = []
 ASSET_SHA256 = '6de1ea0be81a29c145ef414f24bc21d1dcb8a4eb737b22b1f956e9a6f0c2098b'
+APPLE_DLL_CACHE = ROOT / '.apple-dlls'
+_SUSPECT_APPLE_DIR = ('anisette', 'ipa_downloader', 'sideloadly', 'altstore')
+
+
+def _suspect_apple_dir(path):
+    low = str(path).replace('\\', '/').lower()
+    return any(m in low for m in _SUSPECT_APPLE_DIR)
+
+
+def _apple_access_denied(exc):
+    if isinstance(exc, PermissionError):
+        return True
+    if getattr(exc, 'winerror', None) == 5:
+        return True
+    msg = str(exc).lower()
+    return 'access is denied' in msg or 'отказано в доступе' in msg or '[winerror 5]' in msg
 
 
 def windows_apple_library_dirs(extra=()):
     """Dirs with AirTrafficHost/CoreFoundation: --apple-dir, classic AMDS, Apple Devices, Store iTunes."""
     import winreg
-    paths = [Path(p).resolve() for p in extra]
+    extras = [Path(p).resolve() for p in extra]
+    paths = []
     for key in ('CommonProgramW6432', 'CommonProgramFiles'):
         base = os.environ.get(key)
         if base:
@@ -769,7 +786,56 @@ def windows_apple_library_dirs(extra=()):
     except OSError:
         pass
     paths += devices_dirs + itunes_dirs
-    return list(dict.fromkeys(p for p in paths if p.is_dir()))
+    # Skip third-party anisette/IPA caches from discovery; keep explicit --apple-dir.
+    paths = [p for p in paths if p.is_dir() and not _suspect_apple_dir(p)]
+    return list(dict.fromkeys(p for p in extras + paths if p.is_dir()))
+
+
+def windows_apple_cohesive_dir(extra=()):
+    """One directory that contains both CoreFoundation.dll and AirTrafficHost.dll."""
+    dirs = windows_apple_library_dirs(extra)
+    extras = {Path(p).resolve() for p in extra}
+    def rank(d):
+        s = str(d).replace('\\', '/').lower()
+        if d in extras: return 0
+        if 'mobile device support' in s and 'windowsapps' not in s: return 1
+        if 'appleinc.appledevices_' in s: return 2
+        if s.endswith('/amds64') or '/amds64/' in s: return 3
+        if 'appleinc.itunes_' in s: return 4
+        return 5
+    both = [d for d in dirs
+            if (d/'CoreFoundation.dll').is_file() and (d/'AirTrafficHost.dll').is_file()]
+    both.sort(key=rank)
+    return (both[0] if both else None), dirs
+
+
+def ensure_apple_dll_cache(source):
+    """Copy readable *.dll from source into ROOT/.apple-dlls (refresh on size/mtime change)."""
+    import shutil
+    cache = APPLE_DLL_CACHE
+    cache.mkdir(parents=True, exist_ok=True)
+    for src in source.glob('*.dll'):
+        dst = cache / src.name
+        try:
+            st = src.stat()
+        except OSError:
+            continue
+        try:
+            if dst.is_file():
+                dt = dst.stat()
+                if dt.st_size == st.st_size and int(dt.st_mtime) == int(st.st_mtime):
+                    continue
+            shutil.copy2(src, dst)
+        except OSError:
+            continue
+    need = ('CoreFoundation.dll', 'AirTrafficHost.dll')
+    if not all((cache / n).is_file() for n in need):
+        raise RuntimeError(
+            'WindowsApps ACL заблокировал чтение/загрузку DLL Apple '
+            f'({source}). Установите классический Apple Mobile Device Support '
+            'или скопируйте папку DLL Apple Devices / AMDS в обычный каталог '
+            'и укажите его через --apple-dir (либо исправьте ACL и повторите).')
+    return cache
 
 
 class AppleHost:
@@ -787,18 +853,32 @@ class AppleHost:
             self.pool = self.objc.objc_autoreleasePoolPush()
         elif sys.platform == 'win32':
             require(C.sizeof(C.c_void_p) == 8, 'Нужен 64-битный Python и 64-битные компоненты Apple.')
-            paths = windows_apple_library_dirs(directories)
-            for p in paths:
-                self.handles.append(os.add_dll_directory(str(p)))
-            def load(name):
-                candidates = [p/name for p in paths if (p/name).is_file()]
-                require(candidates, 'Не найдена ' + name + '. Установите приложение Apple Devices из Microsoft Store '
-                        'или Apple Mobile Device Support (и драйвер Apple Mobile Device USB). '
-                        'При необходимости укажите папки DLL через --apple-dir '
-                        '(для Store папки WindowsApps иногда недоступны из‑за ACL).')
-                return C.CDLL(str(candidates[0]), winmode=0x1100)
-            self.cf = load('CoreFoundation.dll')
-            self.at = load('AirTrafficHost.dll')
+            source, _ = windows_apple_cohesive_dir(directories)
+            require(source, 'Не найден каталог с CoreFoundation.dll и AirTrafficHost.dll вместе. '
+                    'Установите Apple Devices из Microsoft Store или Apple Mobile Device Support '
+                    '(и драйвер Apple Mobile Device USB). Либо скопируйте папку DLL в обычный путь '
+                    'и укажите её через --apple-dir.')
+            def load_pair(load_dir):
+                self.handles.append(os.add_dll_directory(str(load_dir)))
+                return (C.CDLL(str(load_dir/'CoreFoundation.dll'), winmode=0x1100),
+                        C.CDLL(str(load_dir/'AirTrafficHost.dll'), winmode=0x1100))
+            try:
+                self.cf, self.at = load_pair(source)
+            except OSError as e:
+                if not _apple_access_denied(e):
+                    raise RuntimeError('Библиотеки Apple недоступны: ' + str(e)) from e
+                for h in self.handles:
+                    with contextlib.suppress(Exception):
+                        h.close()
+                self.handles.clear()
+                cache = ensure_apple_dll_cache(source)
+                try:
+                    self.cf, self.at = load_pair(cache)
+                except OSError as e2:
+                    raise RuntimeError(
+                        'WindowsApps ACL заблокировал загрузку DLL Apple даже из кэша .apple-dlls. '
+                        'Установите классический Apple Mobile Device Support или скопируйте папку '
+                        'DLL Apple Devices / AMDS в обычный каталог и укажите через --apple-dir.') from e2
         else:
             raise RuntimeError('Поддерживаются macOS и Windows.')
         P, I, U = C.c_void_p, C.c_ssize_t, C.c_size_t
@@ -1804,22 +1884,26 @@ def environment_info():
     elif sys.platform == 'win32':
         w = sys.getwindowsversion()
         rows.append(('Windows', f"{platform.release()} {platform.version()} (build {w.build}) · {platform.machine()}"))
-        dirs = windows_apple_library_dirs(APPLE_DIRS)
-        found = {}
-        for d in dirs:
-            for name in ('AirTrafficHost.dll', 'MobileDevice.dll', 'CoreFoundation.dll'):
-                if name not in found and (d/name).is_file():
-                    found[name] = f'{win_file_version(d/name) or "?"} ({d})'
+        source, _ = windows_apple_cohesive_dir(APPLE_DIRS)
+        cache = APPLE_DLL_CACHE
+        cache_ok = all((cache/n).is_file() for n in ('CoreFoundation.dll', 'AirTrafficHost.dll'))
+        rows.append(('Apple DLL источник', str(source) if source else 'не найден (нужны CF+AT в одной папке)'))
+        rows.append(('.apple-dlls', f'используется ({cache})' if cache_ok else 'нет'))
+        # Versions from effective load paths: cache when present (ACL fallback), else cohesive source.
+        eff = cache if cache_ok else source
         for name in ('AirTrafficHost.dll', 'MobileDevice.dll', 'CoreFoundation.dll'):
-            rows.append((name, found.get(name, 'не найдена')))
-        amds = next((d for d in dirs if (d/'AirTrafficHost.dll').is_file() or d.name == 'Mobile Device Support'), None)
-        devices = next((d for d in dirs if 'AppleDevices' in d.parts or 'AppleInc.AppleDevices' in str(d)), None)
-        if devices:
-            rows.append(('Apple Devices', f'найден ({devices})'))
-        elif amds:
-            rows.append(('Apple Mobile Device Support', f'найден ({amds})'))
+            p = (eff/name) if eff and (eff/name).is_file() else None
+            if p is None and source and (source/name).is_file():
+                p = source/name
+            rows.append((name, f'{win_file_version(p) or "?"} ({p.parent})' if p else 'не найдена'))
+        if source and 'appleinc.appledevices_' in str(source).lower():
+            rows.append(('Apple Devices', f'найден ({source})'))
+        elif source and 'mobile device support' in str(source).lower():
+            rows.append(('Apple Mobile Device Support', f'найден ({source})'))
+        elif source:
+            rows.append(('Apple DLL папка', str(source)))
         else:
-            rows.append(('Apple Devices / AMDS', 'не найдены (нужны DLL AirTrafficHost и CoreFoundation)'))
+            rows.append(('Apple Devices / AMDS', 'не найдены (нужны DLL AirTrafficHost и CoreFoundation в одной папке)'))
         itunes = [Path(os.environ[k])/'iTunes'/'iTunes.exe' for k in ('ProgramW6432', 'ProgramFiles') if os.environ.get(k)]
         itunes = next((x for x in itunes if x.is_file()), None)
         rows.append(('iTunes.exe', ((win_file_version(itunes) or '?') + ' (не требуется)' if itunes else 'нет (не требуется)')))

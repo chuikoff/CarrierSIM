@@ -19,8 +19,9 @@ IMSI, операция останавливается до записи.
 2. Установите Python 3.11 или новее (на Windows — x64); рекомендуется 3.12.
 3. Windows: нужны библиотеки Apple Mobile Device Support (приложение
    Apple Devices из Microsoft Store или классический AMDS) и драйвер
-   Apple Mobile Device USB. Полный iTunes не обязателен. Если --check
-   не находит DLL из Store (WindowsApps закрыт ACL), укажите папки через
+   Apple Mobile Device USB. Полный iTunes не обязателен. При WinError 5
+   (ACL WindowsApps) скрипт копирует DLL в .apple-dlls; если не помогло —
+   скопируйте папку DLL Apple Devices / AMDS в обычный путь и укажите
    --apple-dir. macOS: системные библиотеки, ставить ничего не нужно.
 4. Подключите iPhone кабелем, включите нужные линии, разблокируйте,
    подтвердите доверие компьютеру. Завершите синхронизацию
@@ -125,9 +126,10 @@ python3 carrier.py --wifi --status  То же по Wi-Fi; --wifi работае�
 python3 carrier.py --help           Все флаги.
 
 При нескольких телефонах добавьте --udid ID. По умолчанию USB, с --wifi — сеть.
-Windows: если --check не находит DLL (часто у Store Apple Devices из‑за ACL
-WindowsApps), укажите папки библиотек через --apple-dir:
-py carrier.py --check --apple-dir "C:\путь\Mobile Device Support" --apple-dir "C:\путь\Apple Application Support"
+Windows: WinError 5 / отказ в доступе к DLL — скрипт копирует их в .apple-dlls.
+Если --check всё ещё падает (ACL WindowsApps), скопируйте папку DLL Apple
+Devices / AMDS в обычный каталог и укажите её:
+py carrier.py --check --apple-dir "C:\путь\к\папке\с\CoreFoundation\и\AirTrafficHost"
 
 Скрипт не скачивает пакеты или DLL; интернет нужен только для зависимостей.
 IMSI не выводится в консоль, но есть в копиях и журналах: не публикуйте runs.
@@ -218,6 +220,13 @@ Windows не видит iPhone: в Проводнике он есть («Apple i
 выполните в папке с файлами: pnputil /add-driver usbaapl64.inf /install,
 затем перезагрузите компьютер. Переустановка Apple Devices / AMDS не всегда
 помогает.
+
+WinError 5 («Отказано в доступе») к DLL Apple: у Store Apple Devices часто
+закрыт WindowsApps; не смешивайте DLL со сторонними кэшами (anisette,
+IPA Downloader). Скрипт грузит CoreFoundation и AirTrafficHost из одной
+папки и при отказе копирует *.dll в .apple-dlls. Если не помогло — укажите
+через --apple-dir копию папки DLL Apple Devices / AMDS (полный iTunes не
+обязателен).
 
 InstallProhibited: установку запрещает «Экранное время» («Ограничения контента
 и конфиденциальности → Покупки в iTunes Store и App Store → Установка
