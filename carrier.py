@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import zipfile
+from carriersim_version import VERSION
 
 ROOT = Path(__file__).resolve().parent
 
@@ -406,7 +407,14 @@ async def books_change(afc, path, action, denied):
         data = await afc.get_file_contents(path) if await exists(afc, path) else b''
         require(not our_trace(data),
                 'iPhone запрещает изменить ' + path + ', а в нём остались записи скрипта. '
-                'Копии сохранены в папке runs — не удаляйте её. Сообщите автору текст этой ошибки.')
+                'Копии сохранены в папке runs — не удаляйте её. '
+                'Попробуйте: отключите iPhone от компьютера, закройте все приложения '
+                '(смахните их в переключателе приложений), затем принудительно перезагрузите iPhone: '
+                'быстро нажмите и отпустите увеличение громкости, затем уменьшение громкости, '
+                'после этого удерживайте боковую кнопку до логотипа Apple. '
+                'После загрузки разблокируйте iPhone, подключите его к компьютеру и повторите '
+                'пункт 5 (--recover) из той же папки CarrierSIM. '
+                'Если ошибка повторится, сообщите автору её текст и журнал сеанса.')
         denied.add(path.removeprefix('Books/'))
 
 
@@ -1044,7 +1052,7 @@ async def host_session(udid, assets, callback, run):
 
 TARGET_BUNDLES = ('Vodafone_hu.bundle',)
 SYSTEM_PREFIX = '../../../../../../System/Library/Carrier Bundles/iPhone/'
-MODELS = {'iPhone14,7': {'name': 'iPhone 14', 'boards': ['D27AP']}, 'iPhone14,8': {'name': 'iPhone 14 Plus', 'boards': ['D28AP']}, 'iPhone15,2': {'name': 'iPhone 14 Pro', 'boards': ['D73AP']}, 'iPhone15,3': {'name': 'iPhone 14 Pro Max', 'boards': ['D74AP']}, 'iPhone15,4': {'name': 'iPhone 15', 'boards': ['D37AP']}, 'iPhone15,5': {'name': 'iPhone 15 Plus', 'boards': ['D38AP']}, 'iPhone16,1': {'name': 'iPhone 15 Pro', 'boards': ['D83AP']}, 'iPhone16,2': {'name': 'iPhone 15 Pro Max', 'boards': ['D84AP']}, 'iPhone17,4': {'name': 'iPhone 16 Plus', 'boards': ['D48AP']}, 'iPhone17,2': {'name': 'iPhone 16 Pro Max', 'boards': ['D94AP']}, 'iPhone17,3': {'name': 'iPhone 16', 'boards': ['D47AP']}, 'iPhone17,1': {'name': 'iPhone 16 Pro', 'boards': ['D93AP']}, 'iPhone17,5': {'name': 'iPhone 16e', 'boards': ['V59AP']}, 'iPhone18,1': {'name': 'iPhone 17 Pro', 'boards': ['V53AP']}, 'iPhone18,2': {'name': 'iPhone 17 Pro Max', 'boards': ['V54AP']}, 'iPhone18,4': {'name': 'iPhone Air', 'boards': ['D23AP']}, 'iPhone18,3': {'name': 'iPhone 17', 'boards': ['V57AP']}, 'iPhone18,5': {'name': 'iPhone 17e', 'boards': ['V159AP']}, 'iPhone19,7': {'name': 'iPhone 18 Pro Max', 'boards': ['V64SAP']}, 'iPhone19,3': {'name': 'iPhone 18 Pro Max (U.S.)', 'boards': ['V64AP']}, 'iPhone19,2': {'name': 'iPhone 18 Pro', 'boards': ['V63AP']}}
+MODELS = {'iPhone13,2': {'name': 'iPhone 12', 'boards': ['D53GAP']}, 'iPhone13,1': {'name': 'iPhone 12 mini', 'boards': ['D52GAP']}, 'iPhone13,3': {'name': 'iPhone 12 Pro', 'boards': ['D53PAP']}, 'iPhone13,4': {'name': 'iPhone 12 Pro Max', 'boards': ['D54PAP']}, 'iPhone14,5': {'name': 'iPhone 13', 'boards': ['D17AP']}, 'iPhone14,4': {'name': 'iPhone 13 mini', 'boards': ['D16AP']}, 'iPhone14,2': {'name': 'iPhone 13 Pro', 'boards': ['D63AP']}, 'iPhone14,3': {'name': 'iPhone 13 Pro Max', 'boards': ['D64AP']}, 'iPhone14,7': {'name': 'iPhone 14', 'boards': ['D27AP']}, 'iPhone14,8': {'name': 'iPhone 14 Plus', 'boards': ['D28AP']}, 'iPhone15,2': {'name': 'iPhone 14 Pro', 'boards': ['D73AP']}, 'iPhone15,3': {'name': 'iPhone 14 Pro Max', 'boards': ['D74AP']}, 'iPhone15,4': {'name': 'iPhone 15', 'boards': ['D37AP']}, 'iPhone15,5': {'name': 'iPhone 15 Plus', 'boards': ['D38AP']}, 'iPhone16,1': {'name': 'iPhone 15 Pro', 'boards': ['D83AP']}, 'iPhone16,2': {'name': 'iPhone 15 Pro Max', 'boards': ['D84AP']}, 'iPhone17,4': {'name': 'iPhone 16 Plus', 'boards': ['D48AP']}, 'iPhone17,2': {'name': 'iPhone 16 Pro Max', 'boards': ['D94AP']}, 'iPhone17,3': {'name': 'iPhone 16', 'boards': ['D47AP']}, 'iPhone17,1': {'name': 'iPhone 16 Pro', 'boards': ['D93AP']}, 'iPhone17,5': {'name': 'iPhone 16e', 'boards': ['V59AP']}, 'iPhone18,1': {'name': 'iPhone 17 Pro', 'boards': ['V53AP']}, 'iPhone18,2': {'name': 'iPhone 17 Pro Max', 'boards': ['V54AP']}, 'iPhone18,4': {'name': 'iPhone Air', 'boards': ['D23AP']}, 'iPhone18,3': {'name': 'iPhone 17', 'boards': ['V57AP']}, 'iPhone18,5': {'name': 'iPhone 17e', 'boards': ['V159AP']}, 'iPhone19,7': {'name': 'iPhone 18 Pro Max', 'boards': ['V64SAP']}, 'iPhone19,3': {'name': 'iPhone 18 Pro Max (U.S.)', 'boards': ['V64AP']}, 'iPhone19,2': {'name': 'iPhone 18 Pro', 'boards': ['V63AP']}}
 
 
 def load_assets():
@@ -1076,7 +1084,7 @@ def load_bundle_config(path=CONFIG):
             line = raw.split('#', 1)[0].strip()
             if not line: continue
             match = re.fullmatch(r'["\']?(default|\d{5,6})["\']?\s*:\s*["\']?([A-Za-z0-9_]+?)(?:\.bundle)?["\']?', line)
-            require(match, f'{path.name}, строка {number}: ожидается «default: Vodafone_hu» или «25001: Vodafone_hu» '
+            require(match, f'{path.name}, строка {number}: ожидается «default: Vodafone_hu» или «25001: Vodafone_ro» '
                            '(MCCMNC без пробела, имя пакета латиницей).')
             key, name = match.groups()
             require(key not in config, f'{path.name}, строка {number}: {key} указан дважды.')
@@ -1862,7 +1870,8 @@ def sysctl(name):
 def environment_info():
     import platform
     from importlib.metadata import version, metadata, PackageNotFoundError
-    rows = [('Сборка скрипта', digest((ROOT/'carrier.py').read_bytes())[:12]),
+    rows = [('CarrierSIM', VERSION),
+            ('Сборка скрипта', digest((ROOT/'carrier.py').read_bytes())[:12]),
             ('Python', f"{sys.version.split()[0]} {platform.machine()} {'64' if sys.maxsize > 2**32 else '32'}-bit")]
     libs = []
     for name in ('pymobiledevice3', 'cryptography', 'pyimg4', 'pylzss', 'lzfse'):
@@ -2040,6 +2049,7 @@ class Tee:
 def start_session_log(runs):
     path = runs / (datetime.now().strftime('%Y%m%d-%H%M%S-') + 'session.log')
     log = path.open('a', encoding='utf-8', buffering=1)
+    log.write(f'CarrierSIM {VERSION} · сборка {digest((ROOT/"carrier.py").read_bytes())[:12]}\n')
     log.write(' '.join(['carrier.py'] + sys.argv[1:]) + '\n')
     sys.stdout, sys.stderr = Tee(sys.stdout, log), Tee(sys.stderr, log)
     DIAG['session_log'] = str(path)
@@ -2094,10 +2104,10 @@ def main():
             native_host(value.get('udid'),value.get('assets',[]),value.get('directories',[]))
             return 0
         except Exception as e:framed({'ok':False,'error':str(e)});return 1
-    print('Исследование, разработка и тесты — Vladimir B / vlw (vlwwwwww@gmail.com).',flush=True)
     parser=argparse.ArgumentParser(description='Vodafone_hu для всех SIM независимо от страны. '
         'Без флагов: установить по IMSI на SIM, сообщённые iPhone. Без ограничений по модели iPhone и версии iOS; совместимость не гарантируется.',
         add_help=False)
+    parser.add_argument('--version', action='version', version=f'CarrierSIM {VERSION}')
     parser.add_argument('-h','--help',action='help',help='показать эту справку')
     group=parser.add_mutually_exclusive_group()
     group.add_argument('--check',action='store_true',help='проверить файлы и библиотеки Apple, без подключения к телефону')
@@ -2121,6 +2131,8 @@ def main():
     parser.add_argument('--runs',type=Path,default=ROOT/'runs',metavar='ПАПКА',help='куда сохранять копии и журналы (по умолчанию runs рядом со скриптом)')
     parser._optionals.title='Параметры'
     args=parser.parse_args()
+    print(f'CarrierSIM {VERSION}',flush=True)
+    print('Исследование, разработка и тесты — Vladimir B / vlw (vlwwwwww@gmail.com).',flush=True)
     DIAG['args']=args
     if args.bundle:
         args.bundle=args.bundle.strip().removesuffix('.bundle')+'.bundle'

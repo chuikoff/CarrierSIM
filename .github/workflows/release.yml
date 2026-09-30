@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - name: Keep an existing release as a draft
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json isDraft > release.json; then
+            if ! python3 -c 'import json; assert json.load(open("release.json"))["isDraft"]'; then
+              gh release edit "$RELEASE_TAG" --draft=true --notes ""
+            fi
+          fi
+
+      - name: Wait for the existing Tests run of this commit
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 90); do
+            gh run list --workflow tests.yml --commit "$GITHUB_SHA" --event push --limit 1 --json status,conclusion,url > tests.json
+            if python3 -c 'import json, sys; runs=json.load(open("tests.json")); r=runs[0] if runs else {}; print(r); sys.exit(0 if r.get("status")=="completed" and r.get("conclusion")=="success" else 1 if r.get("status")=="completed" else 3)'; then
+              exit 0
+            else
+              result=$?
+              if [ "$result" != 3 ]; then exit "$result"; fi
+            fi
+            sleep 10
+          done
+          echo "Timed out waiting for Tests" >&2
+          exit 1
+
+      - name: Check out the release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify version and package exact tag contents
+        run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          python3 -c 'import os; from carriersim_version import VERSION; assert VERSION == os.environ["RELEASE_TAG"], "Version differs from tag"'
+          python3 .github/scripts/package-release.py "$RELEASE_TAG" dist
+
+      - name: Attest archive provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/CarrierSIM-${{ github.ref_name }}-macOS-Windows.zip
+
+      - name: Upload archive to a draft release
+        run: |
+          set -euo pipefail
+          asset="dist/CarrierSIM-${RELEASE_TAG}-macOS-Windows.zip"
+          if gh release view "$RELEASE_TAG" --json isDraft > release.json; then
+            python3 -c 'import json; assert json.load(open("release.json"))["isDraft"], "Refusing to modify a published release"'
+            gh release upload "$RELEASE_TAG" "$asset" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$asset" --verify-tag --draft --title "CarrierSIM ${RELEASE_TAG}" --notes ""
+          fi
+
+      - name: Verify uploaded archive and draft status
+        run: |
+          set -euo pipefail
+          gh release download "$RELEASE_TAG" --pattern "CarrierSIM-${RELEASE_TAG}-macOS-Windows.zip" --dir downloaded
+          cmp "dist/CarrierSIM-${RELEASE_TAG}-macOS-Windows.zip" "downloaded/CarrierSIM-${RELEASE_TAG}-macOS-Windows.zip"
+          gh release view "$RELEASE_TAG" --json isDraft > release.json
+          python3 -c 'import json; assert json.load(open("release.json"))["isDraft"], "Release must remain a draft"'

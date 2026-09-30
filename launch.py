@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from carriersim_version import VERSION
 
 ROOT = Path(__file__).resolve().parent
 UNCONFIRMED = 3  # carrier.py: written, but iOS did not confirm the chosen bundle
@@ -118,7 +119,7 @@ def python_environment():
 
 def menu(wifi=False):
     print('\n' + '─' * 56)
-    print('  CarrierSIM  ·  Vodafone HU')
+    print(f'  CarrierSIM {VERSION}  ·  Vodafone HU')
     print('  Один профиль для всех SIM · привязка по IMSI')
     print('  Исследование, разработка и тесты — Vladimir B / vlw')
     print('  vlwwwwww@gmail.com')

@@ -1,0 +1,75 @@
+name: Package historical releases
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historical-releases
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package ${{ matrix.tag }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: [v1, v2, v3, v4]
+    steps:
+      - name: Check out packaging workflow and historical tags
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Package exact tag contents and verify every file
+        env:
+          RELEASE_TAG: ${{ matrix.tag }}
+        run: python3 .github/scripts/package-release.py "$RELEASE_TAG" dist
+
+      - name: Attest archive provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: dist/CarrierSIM-${{ matrix.tag }}-macOS-Windows.zip
+
+      - name: Create draft release and attach verified archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ matrix.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="dist/CarrierSIM-${RELEASE_TAG}-macOS-Windows.zip"
+          if gh release view "$RELEASE_TAG" --json isDraft > release.json; then
+            python3 -c 'import json; assert json.load(open("release.json"))["isDraft"], "Refusing to modify a published release"'
+            gh release upload "$RELEASE_TAG" "$asset" --clobber
+          else
+            if [ "$RELEASE_TAG" = v1 ]; then
+              cat > notes.txt <<'NOTES'
+          CarrierSIM v1 для macOS и Windows
+
+          Первый релиз - версия работает только на iOS 27
+          NOTES
+            else
+              touch notes.txt
+            fi
+            gh release create "$RELEASE_TAG" "$asset" --verify-tag --draft --title "CarrierSIM ${RELEASE_TAG}" --notes-file notes.txt
+          fi
+
+      - name: Verify uploaded asset digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ matrix.tag }}
+        run: |
+          gh release download "$RELEASE_TAG" --pattern "CarrierSIM-${RELEASE_TAG}-macOS-Windows.zip" --dir downloaded
+          cmp "dist/CarrierSIM-${RELEASE_TAG}-macOS-Windows.zip" "downloaded/CarrierSIM-${RELEASE_TAG}-macOS-Windows.zip"
